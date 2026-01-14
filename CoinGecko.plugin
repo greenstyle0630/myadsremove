@@ -1,0 +1,13 @@
+#!name=CoinGecko去广告
+#!desc=移除CoinGecko App内的空白广告占位符
+#!author=Me
+#!homepage=https://github.com/
+#!icon=https://static.coingecko.com/s/coingecko-logo-8903d34ce19ca4be1c81f0db30e924154750d208683fad7ae6f2ce06c76d0a56.png
+#!date=2026-01-14
+
+[MitM]
+hostname = geckad.com
+
+[Script]
+# 拦截广告请求，直接返回空内容，从而消除白框
+http-response ^https:\/\/geckad\.com\/kevel\/ad script-echo-response, body="{}"
