@@ -1,37 +1,48 @@
-#!name=CoinGecko去广告(内嵌版)
-#!desc=移除开屏、弹窗及空白占位符(无需外部资源)
-#!author=LoonUser
-#!homepage=https://github.com/
+#!name=CoinGecko完美去广告
+#!desc=解锁Premium状态，移除所有广告及占位符
+#!author=CustomMade
 #!icon=https://static.coingecko.com/s/coingecko-logo-8903d34ce19ca4be1c81f0db30e924154750d208683fad7ae6f2ce06c76d0a56.png
-#!date=2026-01-14 13:00
+#!date=2026-01-14 13:30
 
 [MitM]
-hostname = geckad.com, mobile-api.coingecko.com
+hostname = mobile-api.coingecko.com, geckad.com
 
 [Script]
-# 1. 拦截 geckad 广告内容 (解决图片)
+# 1. 拦截 geckad 广告数据 (防止弹窗)
 http-response ^https:\/\/geckad\.com\/kevel\/ad script-echo-response, body="{}"
 
-# 2. 修改 global 配置 (解决白框) - 使用 script-body 直接内嵌代码
-http-response ^https:\/\/mobile-api\.coingecko\.com\/api\/v3\/global script-body=coingecko_config
+# 2. 修改用户信息 (解决白框) - 针对 global/user 接口
+http-response ^https:\/\/mobile-api\.coingecko\.com\/api\/v3\/.*(global|user_settings) script-body=coingecko_vip, requires-body=true
 
 [Script-Body]
-# 这里是核心逻辑，直接写在这里就不怕下载失败了
-coingecko_config = <<JS
-var obj = JSON.parse($response.body);
+coingecko_vip = <<JS
+let obj = JSON.parse($response.body);
 
-// 1. 尝试开启高级会员 (这通常能去除所有原生广告位)
-if (obj.logged_in_user) {
-    obj.logged_in_user.is_premium = true;
-    obj.logged_in_user.has_ad_free_subscription = true;
-    obj.logged_in_user.subscription_status = "active";
+// 核心逻辑：修改订阅状态
+if (obj.subscription) {
+    // 1. 改名字，让 UI 显示你是 Premium
+    obj.subscription.subscription_plan_name = "Premium+"; 
+    
+    // 2. 核心开关：告诉 App 隐藏广告
+    if (obj.subscription.config) {
+        obj.subscription.config.hide_ads = true;
+        obj.subscription.config.candy_multiplier = 10; // 顺便送你个糖果倍率(自慰用)
+    }
+    
+    // 3. 伪造生效时间 (防止 App 检查过期)
+    let now = Math.floor(new Date().getTime() / 1000);
+    obj.subscription.start_at = now - 100000; // 过去开始
+    obj.subscription.end_at = now + 31536000; // 一年后结束
+    obj.subscription.is_cancelled = false;
 }
 
-// 2. 暴力删除广告字段 (针对未登录用户)
-// 即使我们还没看到具体的JSON，先把常见的广告关键词都删了，宁可错杀不可放过
-var keys = ["ads", "marketing", "banner", "system_messages", "promo"];
-for (var k of keys) {
-    if (obj[k]) delete obj[k];
+// 双重保险：如果有 active_subscriptions 数组，也塞进去
+if (obj.active_subscriptions && Array.isArray(obj.active_subscriptions)) {
+    obj.active_subscriptions.push({
+        "id": "premium_plus_monthly",
+        "type": "subscription",
+        "status": "active"
+    });
 }
 
 $done({body: JSON.stringify(obj)});
