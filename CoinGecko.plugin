@@ -1,49 +1,57 @@
-#!name=CoinGecko完美去广告
-#!desc=解锁Premium状态，移除所有广告及占位符
-#!author=CustomMade
+#!name=CoinGecko去广告(核弹版)
+#!desc=强制注入Premium订阅数组，移除底部Banner
+#!author=LoonUser
+#!homepage=https://github.com/
 #!icon=https://static.coingecko.com/s/coingecko-logo-8903d34ce19ca4be1c81f0db30e924154750d208683fad7ae6f2ce06c76d0a56.png
-#!date=2026-01-14 13:30
+#!date=2026-01-14 14:00
 
 [MitM]
 hostname = mobile-api.coingecko.com, geckad.com
 
 [Script]
-# 1. 拦截 geckad 广告数据 (防止弹窗)
+# 1. 拦截广告商 (防止加载内容)
 http-response ^https:\/\/geckad\.com\/kevel\/ad script-echo-response, body="{}"
 
-# 2. 修改用户信息 (解决白框) - 针对 global/user 接口
-http-response ^https:\/\/mobile-api\.coingecko\.com\/api\/v3\/.*(global|user_settings) script-body=coingecko_vip, requires-body=true
+# 2. 修改全局配置 (解决占位符)
+http-response ^https:\/\/mobile-api\.coingecko\.com\/api\/v3\/.*(global|user_settings) script-body=coingecko_nuke, requires-body=true
 
 [Script-Body]
-coingecko_vip = <<JS
-let obj = JSON.parse($response.body);
+coingecko_nuke = <<JS
+try {
+    var obj = JSON.parse($response.body);
 
-// 核心逻辑：修改订阅状态
-if (obj.subscription) {
-    // 1. 改名字，让 UI 显示你是 Premium
-    obj.subscription.subscription_plan_name = "Premium+"; 
-    
-    // 2. 核心开关：告诉 App 隐藏广告
-    if (obj.subscription.config) {
-        obj.subscription.config.hide_ads = true;
-        obj.subscription.config.candy_multiplier = 10; // 顺便送你个糖果倍率(自慰用)
-    }
-    
-    // 3. 伪造生效时间 (防止 App 检查过期)
-    let now = Math.floor(new Date().getTime() / 1000);
-    obj.subscription.start_at = now - 100000; // 过去开始
-    obj.subscription.end_at = now + 31536000; // 一年后结束
-    obj.subscription.is_cancelled = false;
-}
-
-// 双重保险：如果有 active_subscriptions 数组，也塞进去
-if (obj.active_subscriptions && Array.isArray(obj.active_subscriptions)) {
-    obj.active_subscriptions.push({
-        "id": "premium_plus_monthly",
+    // 【核心大招】直接伪造一个正在生效的订阅列表
+    // 很多 App 会检查这个数组长度是否大于0
+    obj.active_subscriptions = [{
+        "id": "coingecko_premium_plus_yearly", 
         "type": "subscription",
-        "status": "active"
-    });
-}
+        "plan_name": "Premium+",
+        "status": "active",
+        "starts_at": 1704067200, // 2024-01-01
+        "ends_at": 4860009600,   // 2124-01-01 (100年后过期)
+        "currency": "usd",
+        "amount": 99.99
+    }];
 
-$done({body: JSON.stringify(obj)});
+    // 修改基础订阅对象
+    if (obj.subscription) {
+        obj.subscription.subscription_plan_name = "Premium+";
+        if (obj.subscription.config) {
+            obj.subscription.config.hide_ads = true; // 告诉 App 隐藏广告
+            obj.subscription.config.candy_multiplier = 10;
+        }
+    }
+
+    // 顺手关掉营销推送
+    if (obj.push_notifications_config) {
+        obj.push_notifications_config.MARKETING = false;
+        obj.push_notifications_config.MARKETING_V2 = false;
+    }
+
+    $done({body: JSON.stringify(obj)});
+} catch (e) {
+    // 如果出错了，原样返回，防止 App 崩溃
+    console.log("CoinGecko Script Error: " + e);
+    $done({});
+}
 JS
