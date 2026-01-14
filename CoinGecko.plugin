@@ -1,65 +1,62 @@
-#!name=CoinGecko会员伪装
-#!desc=解锁Premium会员身份，移除所有广告
+#!name=CoinGecko去广告(V3宽泛版)
+#!desc=修复匹配问题，强制解锁会员
 #!author=LoonUser
 #!icon=https://static.coingecko.com/s/coingecko-logo-8903d34ce19ca4be1c81f0db30e924154750d208683fad7ae6f2ce06c76d0a56.png
-#!date=2026-01-14 14:15
+#!date=2026-01-14 14:30
 
 [MitM]
 hostname = mobile-api.coingecko.com, geckad.com
 
 [Script]
-# 1. 拦截广告商 (防止弹窗)
+# 1. 拦截 geckad 广告 (直接屏蔽)
 http-response ^https:\/\/geckad\.com\/kevel\/ad script-echo-response, body="{}"
 
-# 2. 伪装会员身份 (针对 global 接口)
-http-response ^https:\/\/mobile-api\.coingecko\.com\/api\/v3\/.*global script-body=coingecko_vip, requires-body=true
+# 2. 修改会员状态 (使用超宽泛匹配，只要是API都检查)
+http-response ^https:\/\/mobile-api\.coingecko\.com\/api\/v3\/ script-body=cg_vip_v3, requires-body=true
 
 [Script-Body]
-coingecko_vip = <<JS
-try {
-    var obj = JSON.parse($response.body);
+cg_vip_v3 = <<JS
+// 获取当前请求的URL，只处理 global 接口
+let url = $request.url;
+if (url.indexOf("global") !== -1 || url.indexOf("user_settings") !== -1) {
+    try {
+        let obj = JSON.parse($response.body);
 
-    // 核心对象：伪造一个正在生效的订阅
-    var vipSub = {
-        "id": "coingecko_premium_yearly_apple",
-        "type": "subscription",
-        "plan_name": "Premium", // 会员等级
-        "status": "active",     // 激活状态
-        "starts_at": 1704067200, // 2024-01-01
-        "ends_at": 1956528000,   // 2032-01-01 (长期有效)
-        "currency": "usd",
-        "amount": 49.99,
-        "recurring": true
-    };
+        // 1. 强制覆盖 active_subscriptions
+        // 这是最狠的一招，App 看到这个数组有东西就会认
+        let fakeSub = {
+            "id": "coingecko_premium_plus_yearly",
+            "type": "subscription",
+            "plan_name": "Premium+",
+            "status": "active",
+            "starts_at": 1704067200, 
+            "ends_at": 4860009600,
+            "currency": "usd",
+            "amount": 99.99,
+            "auto_renew": true
+        };
+        obj.active_subscriptions = [fakeSub];
 
-    // 1. 注入订阅列表 (很多App查这个)
-    obj.active_subscriptions = [vipSub];
-
-    // 2. 修改基础订阅信息
-    if (obj.subscription) {
-        obj.subscription.subscription_plan_name = "Premium";
-        obj.subscription.apple_price_id = "coingecko_premium_yearly"; // 模拟苹果订阅ID
+        // 2. 修改 subscription 对象
+        if (!obj.subscription) obj.subscription = {};
+        obj.subscription.subscription_plan_name = "Premium+";
+        obj.subscription.plan_name = "Premium+"; // 防御性多写一个
         obj.subscription.status = "active";
-        obj.subscription.expires_at = 1956528000;
         
-        // 核心去广告开关
-        if (obj.subscription.config) {
-            obj.subscription.config.hide_ads = true;
-            obj.subscription.config.candy_multiplier = 10;
-        }
-    }
+        // 3. 关掉广告配置
+        if (!obj.subscription.config) obj.subscription.config = {};
+        obj.subscription.config.hide_ads = true;
+        
+        // 4. 修改用户显示名称 (可选，用来验证脚本是否生效)
+        // 如果你在App里看到名字变了，说明脚本绝对运行了
+        if (obj.name) obj.name = "💎 Premium User 💎";
 
-    // 3. 这里的 account_type 有时候也需要改
-    if (obj.user) {
-        obj.user.account_type = "Premium";
+        $done({body: JSON.stringify(obj)});
+    } catch (e) {
+        $done({});
     }
-    
-    // 4. 防止有漏网之鱼，把根节点的广告标记也干掉
-    obj.ads_enabled = false;
-    obj.show_ads = false;
-
-    $done({body: JSON.stringify(obj)});
-} catch (e) {
+} else {
+    // 不是 global 接口，原样放行
     $done({});
 }
 JS
