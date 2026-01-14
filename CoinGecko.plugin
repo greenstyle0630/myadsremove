@@ -1,40 +1,38 @@
-#!name=CoinGecko去广告完整版
-#!desc=移除开屏广告、横幅广告及空白占位符
+#!name=CoinGecko去广告(内嵌版)
+#!desc=移除开屏、弹窗及空白占位符(无需外部资源)
 #!author=LoonUser
 #!homepage=https://github.com/
 #!icon=https://static.coingecko.com/s/coingecko-logo-8903d34ce19ca4be1c81f0db30e924154750d208683fad7ae6f2ce06c76d0a56.png
-#!date=2026-01-14
+#!date=2026-01-14 13:00
 
 [MitM]
 hostname = geckad.com, mobile-api.coingecko.com
 
 [Script]
-# 1. 暴力拦截广告商请求 (解决内容)
+# 1. 拦截 geckad 广告内容 (解决图片)
 http-response ^https:\/\/geckad\.com\/kevel\/ad script-echo-response, body="{}"
 
-# 2. 修改 App 全局配置 (解决占位符)
-http-response ^https:\/\/mobile-api\.coingecko\.com\/api\/v3\/global script-path=https://raw.githubusercontent.com/RepCZ/Tool/main/Loon/Script/CoinGecko_Remove_Ads.js, requires-body=true, tag=移除配置
-
-# 注意：为了方便你使用，上面的 script-path 我指向了一个通用的去广告脚本逻辑。
-# 如果你想完全自己写，可以将 script-path 改为 script-body 并使用下面的代码：
+# 2. 修改 global 配置 (解决白框) - 使用 script-body 直接内嵌代码
+http-response ^https:\/\/mobile-api\.coingecko\.com\/api\/v3\/global script-body=coingecko_config
 
 [Script-Body]
-// 这里是内嵌的 JavaScript 代码
+# 这里是核心逻辑，直接写在这里就不怕下载失败了
+coingecko_config = <<JS
 var obj = JSON.parse($response.body);
 
-// 暴力清除常见的广告字段
-if (obj) {
-  // 1. 如果有 logged_in_user 字段，伪装成高级会员
-  if (obj.logged_in_user) {
-      obj.logged_in_user.is_premium = true;
-      obj.logged_in_user.subscription_status = "active";
-  }
-  
-  // 2. 清空特定的广告配置数组 (根据经验盲猜的常见字段)
-  delete obj.ads;
-  delete obj.marketing;
-  delete obj.banner;
+// 1. 尝试开启高级会员 (这通常能去除所有原生广告位)
+if (obj.logged_in_user) {
+    obj.logged_in_user.is_premium = true;
+    obj.logged_in_user.has_ad_free_subscription = true;
+    obj.logged_in_user.subscription_status = "active";
+}
+
+// 2. 暴力删除广告字段 (针对未登录用户)
+// 即使我们还没看到具体的JSON，先把常见的广告关键词都删了，宁可错杀不可放过
+var keys = ["ads", "marketing", "banner", "system_messages", "promo"];
+for (var k of keys) {
+    if (obj[k]) delete obj[k];
 }
 
 $done({body: JSON.stringify(obj)});
-
+JS
